@@ -1,0 +1,204 @@
+From 264e8ae812a13eca872feba37c7555a6a027b3e9 Mon Sep 17 00:00:00 2001
+From: Dmitri Dolguikh <dmitri@appliedlogic.ca>
+Date: Thu, 15 Nov 2012 19:43:54 +0000
+Subject: [PATCH] an assortment of fixes and updates to get tests passing
+ under new rspec and ruby 1.9.3
+
+---
+ Rakefile                         |   26 +++++++++++++-------------
+ spec/base.rb                     |    6 ++----
+ spec/integration/request_spec.rb |    3 +++
+ spec/payload_spec.rb             |   17 +++++++++++++----
+ spec/request_spec.rb             |    6 ++----
+ spec/response_spec.rb            |    2 +-
+ 6 files changed, 34 insertions(+), 26 deletions(-)
+
+diff --git a/Rakefile b/Rakefile
+index ac8cc01..dc97237 100644
+--- a/Rakefile
++++ b/Rakefile
+@@ -19,32 +19,32 @@ end
+ 
+ ############################
+ 
+-require 'spec/rake/spectask'
++require "rspec/core/rake_task"
+ 
+ desc "Run all specs"
+ task :spec => ["spec:unit", "spec:integration"]
+ 
+ desc "Run unit specs"
+-Spec::Rake::SpecTask.new('spec:unit') do |t|
+-  t.spec_opts = ['--colour --format progress --loadby mtime --reverse']
+-  t.spec_files = FileList['spec/*_spec.rb']
++RSpec::Core::RakeTask.new('spec:unit') do |t|
++  t.rspec_opts = ['--colour --format progress']
++  t.pattern = 'spec/*_spec.rb'
+ end
+ 
+ desc "Run integration specs"
+-Spec::Rake::SpecTask.new('spec:integration') do |t|
+-  t.spec_opts = ['--colour --format progress --loadby mtime --reverse']
+-  t.spec_files = FileList['spec/integration/*_spec.rb']
++RSpec::Core::RakeTask.new('spec:integration') do |t|
++  t.rspec_opts = ['--colour --format progress']
++  t.pattern = 'spec/integration/*_spec.rb'
+ end
+ 
+ desc "Print specdocs"
+-Spec::Rake::SpecTask.new(:doc) do |t|
+-  t.spec_opts = ["--format", "specdoc", "--dry-run"]
+-  t.spec_files = FileList['spec/*_spec.rb']
++RSpec::Core::RakeTask.new(:doc) do |t|
++  t.rspec_opts = ["--format", "specdoc", "--dry-run"]
++  t.pattern = 'spec/*_spec.rb'
+ end
+ 
+ desc "Run all examples with RCov"
+-Spec::Rake::SpecTask.new('rcov') do |t|
+-  t.spec_files = FileList['spec/*_spec.rb']
++RSpec::Core::RakeTask.new('rcov') do |t|
++  t.pattern = 'spec/*_spec.rb'
+   t.rcov = true
+   t.rcov_opts = ['--exclude', 'examples']
+ end
+@@ -53,7 +53,7 @@ task :default => :spec
+ 
+ ############################
+ 
+-require 'rake/rdoctask'
++require 'rdoc/task'
+ 
+ Rake::RDocTask.new do |t|
+   t.rdoc_dir = 'rdoc'
+diff --git a/spec/base.rb b/spec/base.rb
+index 965a6e2..4cca91b 100644
+--- a/spec/base.rb
++++ b/spec/base.rb
+@@ -1,11 +1,9 @@
+ def is_ruby_19?
+-  RUBY_VERSION == '1.9.1' or RUBY_VERSION == '1.9.2'
++  RUBY_VERSION >= '1.9'
+ end
+ 
+-Encoding.default_internal = Encoding.default_external = "ASCII-8BIT" if is_ruby_19?
+-
+ require 'rubygems'
+-require 'spec'
++require 'rspec'
+ 
+ begin
+   require "ruby-debug"
+diff --git a/spec/integration/request_spec.rb b/spec/integration/request_spec.rb
+index f7774ea..a3d49d3 100644
+--- a/spec/integration/request_spec.rb
++++ b/spec/integration/request_spec.rb
+@@ -12,6 +12,9 @@
+       expect { request.execute }.to_not raise_error
+     end
+ 
++
++    # This no longer works (under 1.9.3 at the very least). Exceptions in verify_callback are ignored.
++    # see https://github.com/ruby/ruby/blob/trunk/ext/openssl/ossl.c#L237
+     it "is unsuccessful with an incorrect ca_file" do
+       request = RestClient::Request.new(
+         :method => :get,
+diff --git a/spec/payload_spec.rb b/spec/payload_spec.rb
+index 89ded79..926a73e 100644
+--- a/spec/payload_spec.rb
++++ b/spec/payload_spec.rb
+@@ -1,3 +1,4 @@
++# encoding: binary
+ require File.join(File.dirname(File.expand_path(__FILE__)), 'base')
+ 
+ describe RestClient::Payload do
+@@ -108,7 +109,7 @@
+ Content-Disposition: form-data; name="foo"; filename="master_shake.jpg"\r
+ Content-Type: image/jpeg\r
+ \r
+-#{IO.read(f.path)}\r
++#{File.open(f.path, 'rb'){|bin| bin.read}}\r
+ --#{m.boundary}--\r
+       EOS
+     end
+@@ -121,7 +122,7 @@
+ Content-Disposition: form-data; filename="master_shake.jpg"\r
+ Content-Type: image/jpeg\r
+ \r
+-#{IO.read(f.path)}\r
++#{File.open(f.path, 'rb'){|bin| bin.read}}\r
+ --#{m.boundary}--\r
+       EOS
+     end
+@@ -136,7 +137,7 @@
+ Content-Disposition: form-data; name="foo"; filename="foo.txt"\r
+ Content-Type: text/plain\r
+ \r
+-#{IO.read(f.path)}\r
++#{File.open(f.path, 'rb'){|bin| bin.read}}\r
+ --#{m.boundary}--\r
+       EOS
+     end
+@@ -160,7 +161,7 @@
+ Content-Disposition: form-data; name="foo[bar]"; filename="foo.txt"\r
+ Content-Type: text/plain\r
+ \r
+-#{IO.read(f.path)}\r
++#{File.open(f.path, 'rb'){|bin| bin.read}}\r
+ --#{m.boundary}--\r
+       EOS
+     end
+@@ -230,5 +231,13 @@
+     it "should recognize other payloads that can be streamed" do
+       RestClient::Payload.generate(StringIO.new('foo')).should be_kind_of(RestClient::Payload::Streamed)
+     end
++
++    # hashery gem introduces Hash#read convenience method. Existence of #read method used to determine of content is streameable :/
++    it "shouldn't treat hashes as streameable" do
++      RestClient::Payload.generate({"foo" => 'bar'}).should be_kind_of(RestClient::Payload::UrlEncoded)
++    end
++  end
++
++  class HashMapForTesting < Hash
+   end
+ end
+diff --git a/spec/request_spec.rb b/spec/request_spec.rb
+index ccb8d3c..c7ec0d1 100644
+--- a/spec/request_spec.rb
++++ b/spec/request_spec.rb
+@@ -111,8 +111,7 @@
+ 
+   it "uses netrc credentials" do
+     URI.stub!(:parse).and_return(mock('uri', :user => nil, :password => nil, :host => 'example.com'))
+-    File.stub!(:stat).and_return(mock('stat', :mode => 0600))
+-    IO.stub!(:readlines).and_return(["machine example.com login a password b"])
++    Netrc.stub!(:read).and_return('example.com' => ['a', 'b'])
+     @request.parse_url_with_auth('http://example.com/resource')
+     @request.user.should == 'a'
+     @request.password.should == 'b'
+@@ -120,8 +119,7 @@
+ 
+   it "uses credentials in the url in preference to netrc" do
+     URI.stub!(:parse).and_return(mock('uri', :user => 'joe%20', :password => 'pass1', :host => 'example.com'))
+-    File.stub!(:stat).and_return(mock('stat', :mode => 0600))
+-    IO.stub!(:readlines).and_return(["machine example.com login a password b"])
++    Netrc.stub!(:read).and_return('example.com' => ['a', 'b'])
+     @request.parse_url_with_auth('http://joe%20:pass1@example.com/resource')
+     @request.user.should == 'joe '
+     @request.password.should == 'pass1'
+diff --git a/spec/response_spec.rb b/spec/response_spec.rb
+index 840698e..65ad860 100644
+--- a/spec/response_spec.rb
++++ b/spec/response_spec.rb
+@@ -91,7 +91,7 @@
+     end
+ 
+     it "follows a redirection and keep the cookies" do
+-      stub_request(:get, 'http://some/resource').to_return(:body => '', :status => 301, :headers => {'Set-Cookie' => CGI::Cookie.new('Foo', 'Bar'), 'Location' => 'http://new/resource', })
++      stub_request(:get, 'http://some/resource').to_return(:body => '', :status => 301, :headers => {'Set-Cookie' => 'Foo=Bar', 'Location' => 'http://new/resource', })
+       stub_request(:get, 'http://new/resource').with(:headers => {'Cookie' => 'Foo=Bar'}).to_return(:body => 'Qux')
+       RestClient::Request.execute(:url => 'http://some/resource', :method => :get).body.should == 'Qux'
+     end
+-- 
+1.7.10
+
